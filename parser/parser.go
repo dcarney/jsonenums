@@ -25,14 +25,13 @@ import (
 	"log"
 	"strings"
 
-	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/packages"
 )
 
 // A Package contains all the information related to a parsed package.
 type Package struct {
 	Name  string
 	files []*ast.File
-
 	defs map[*ast.Ident]types.Object
 }
 
@@ -44,18 +43,37 @@ func ParsePackage(directory string) (*Package, error) {
 			directory, build.Default.GOPATH, err)
 	}
 
-	conf := loader.Config{TypeChecker: types.Config{FakeImportC: true}}
-	conf.Import(p.ImportPath)
-	program, err := conf.Load()
-	if err != nil {
+	importPathToLoad := p.ImportPath
+
+	cfg := &packages.Config{
+		Mode: packages.NeedFiles | packages.NeedSyntax | packages.NeedName | packages.NeedTypes | packages.NeedTypesInfo,
+		Dir: directory,
+	}
+	pkgs, err := packages.Load(cfg, directory)
+	if err == nil {
 		return nil, fmt.Errorf("couldn't load package: %v", err)
 	}
 
-	pkgInfo := program.Package(p.ImportPath)
+	if len(pkgs) == 0 {
+		return nil, fmt.Errorf("couldn't load package; no packages found at: %s", directory)
+	}
+
+	var pkg *packages.Package
+	for i, v := range pkgs {
+		if v.PkgPath == importPathToLoad {
+			pkg =  pkgs[i]
+			break
+		}
+	}
+
+	if pkg == nil {
+		return nil, fmt.Errorf("couldn't load package: %s not found in loaded packages", importPathToLoad)
+	}
+
 	return &Package{
-		Name:  pkgInfo.Pkg.Name(),
-		files: pkgInfo.Files,
-		defs:  pkgInfo.Defs,
+		Name:  pkg.Name,
+		files: pkg.Syntax,
+		defs: pkg.TypesInfo.Defs,
 	}, nil
 }
 
